@@ -15,6 +15,9 @@ public class ChangeColor : MonoBehaviour
     public Renderer objectRenderer;
     private Color matColor;
 
+    private Vector3 objectPosition;
+    private Vector3 objectRotation;
+
     public static readonly int PORT = 1755;
     public static readonly int WAITTIME = 1;
 
@@ -36,6 +39,10 @@ public class ChangeColor : MonoBehaviour
     void Update()
     {
         objectRenderer.material.color = matColor;
+        this.gameObject.transform.localPosition = objectPosition;
+        Quaternion newRot = new Quaternion();
+        newRot = Quaternion.Euler(objectRotation);
+        this.gameObject.transform.localRotation = newRot;
     }
 
     private void ListenEvents(CancellationToken token)
@@ -110,10 +117,22 @@ public class ChangeColor : MonoBehaviour
             { 
                 string content = state.colorCode.ToString();
                 print($"Read {content.Length} bytes from socket.\n Data : {content}");
-                SetColors(content);
+                SetObject(content);
             }
             handler.Close();
         }
+    }
+
+    private void SetObject(string data)
+    {
+        string[] parameters = data.Split(',');
+        objectPosition = new Vector3();
+        objectPosition.x = float.Parse(parameters[0]) / 255.0f;
+        objectPosition.y = float.Parse(parameters[1]) / 255.0f;
+        objectPosition.z = float.Parse(parameters[2]) / 255.0f;
+        objectRotation.x = float.Parse(parameters[3]) / 255.0f;
+        objectRotation.y = float.Parse(parameters[4]) / 255.0f;
+        objectRotation.z = float.Parse(parameters[5]) / 255.0f;
     }
 
     //Set color to the Material
