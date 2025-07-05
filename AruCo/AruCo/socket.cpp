@@ -12,8 +12,64 @@
 
 #pragma comment(lib, "ws2_32.lib")
 using SOCKET_T = SOCKET;
+#else
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+
+using SOCKET_T = int;
+const int INVALID_SOCKET = -1;
+const int SOCKET_ERROR = -1;
 #endif
 
+bool sendMessage(const char* message) {
+    SOCKET_T sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (sock == INVALID_SOCKET) {
+        std::cerr << "Socket creation failed." << std::endl;
+        return false;
+    }
+
+    sockaddr_in serverAddr{};
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_port = htons(1755); // Port number Unity listens on
+
+#ifdef _WIN32
+    InetPton(AF_INET, L"10.0.0.130", &serverAddr.sin_addr);
+#else
+    inet_pton(AF_INET, "10.0.0.130", &serverAddr.sin_addr);
+#endif
+
+    if (connect(sock, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR) {
+        std::cerr << "Connection failed." << std::endl;
+#ifdef _WIN32
+        closesocket(sock);
+#else
+        close(sock);
+#endif
+        return false;
+    }
+
+    int sendResult = send(sock, message, (int)strlen(message), 0);
+    if (sendResult == SOCKET_ERROR) {
+        std::cerr << "Send failed." << std::endl;
+#ifdef _WIN32
+        closesocket(sock);
+#else
+        close(sock);
+#endif
+        return false;
+    }
+
+    std::cout << "Message sent: " << message << std::endl;
+
+#ifdef _WIN32
+    closesocket(sock);
+#else
+    close(sock);
+#endif
+
+    return true;
+}
 
 int main()
 {
@@ -25,55 +81,19 @@ int main()
     }
 #endif
 
-    SOCKET_T sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (sock == INVALID_SOCKET) {
-        std::cerr << "Socket creation failed." << std::endl;
-#ifdef _WIN32
-        WSACleanup();
-#endif
-        return 1;
-    }
-    sockaddr_in serverAddr;
-    serverAddr.sin_family = AF_INET;
-    serverAddr.sin_port = htons(1755); //Port number Unity listens on
-#ifdef _WIN32
-    InetPton(AF_INET, L"10.0.0.130", &serverAddr.sin_addr);
-#else
-    inet_pton(AF_INET, "127.0.0.1", &serverAddr.sin_addr);
-#endif
-
-    if (connect(sock, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR) {
-        std::cerr << "Connection failed." << std::endl;
-        closesocket(sock);
-#ifdef _WIN32
-        WSACleanup();
-#endif
-        return 1;
-    }
-
-    std::cout << "Connected to server." << std::endl;
-
-    // Example of sending data
     const char* message = "Hello, Unity!";
-    while (true)
-    {
-        int sendResult = send(sock, message, strlen(message), 0);
-        if (sendResult == SOCKET_ERROR) {
-            std::cerr << "Send failed." << std::endl;
+
+    while (true) {
+        if (!sendMessage(message)) {
+            std::cerr << "Failed to send message." << std::endl;
             break;
         }
-        else {
-            std::cout << "Message sent: " << message << std::endl;
-        }
-        std::this_thread::sleep_for(std::chrono::seconds(5));  // Wait 1 second between sends
+        std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 
-    // Close the socket
 #ifdef _WIN32
-    closesocket(sock);
     WSACleanup();
 #endif
+
     return 0;
-
-
 }
