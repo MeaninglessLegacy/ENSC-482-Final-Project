@@ -52,12 +52,19 @@ classNames = model.names
 ip = '10.0.0.130'
 port = 1755
 
-# send object data to unity socket
-def sendYoloDataToSocket(objClassName, x1, y2, x2, y2):
+def sendObjectDataToSocket(detectedObjectClass):
+    # get values from object
+    className = detectedObjectClass.className
+    x = detectedObjectClass.tvec[0]
+    y = detectedObjectClass.tvec[1]
+    z = detectedObjectClass.tvec[2]
+    Rx = detectedObjectClass.rvec[0]
+    Ry = detectedObjectClass.rvec[1]
+    Rz = detectedObjectClass.rvec[2]
     s = socket.socket()   
     s.connect((ip, port))
     s.send((
-        str(objClassName) + ","+ 
+        str(className) + ","+ 
         str(x) + ","+ 
         str(y) + ","+ 
         str(z) + ","+ 
@@ -66,17 +73,36 @@ def sendYoloDataToSocket(objClassName, x1, y2, x2, y2):
         str(Rz)).encode())
     s.close()
 
-def sendAruCoDataToSocket(markerCorner, tvec, rvec):
-    s = socket.socket()
-    s.connect((ip, port))
-    s.send((
-        str(markerCorner) + ","+
-        str(tvec) + ","+
-        str(rvec).encode()
-    ))
-    s.close()
+# Detected object class
+class DetectedObject:
+    className = "EMPTY"
+    YOLOBoundingBox = [0,0,0,0]
+    AruCoMarkerCorners = [0,0,0,0]
+    tvec = []
+    rvec = []
+    def __init__():
+        return
+
+# List of detected objects
+detectedObjectList = []
+
+def clearDetectedObjectList():
+    global detectedObjectList
+    detectedObjectList.clear()
+
+# add data to object list
+def addYoloDetectedObject(objClassName, x1, y1, x2, y2):
+    global detectedObjectList
+    return
+
+def addAruCoDetectedObject(markerCorner, tvec, rvec):
+    global detectedObjectList
+    return
 
 while True:
+
+    # clear detected objects
+    clearDetectedObjectList()
 
     success, img = cap.read()
     # Do processing on img, draw displayed img.
@@ -98,7 +124,7 @@ while True:
                 # 0.1 is the axis length, here also can add the thickness after the axis length
                 cv.drawFrameAxes(displayImg, mtx, dst, rvecs[i], tvecs[i], 0.1)
                 # send AruCo data
-                sendAruCoDataToSocket(marker_cornes[i], tvecs[i], rvecs[i])
+                addAruCoDetectedObject(marker_cornes[i], tvecs[i], rvecs[i])
         else:
             cv.putText(displayImg, "No id", (0,64), cv.FONT_HERSHEY_PLAIN, 1.5, (0, 0, 255),2,cv.LINE_AA)
         key = cv.waitKey(1) # 1 means delay in 1 milliseconds
@@ -130,11 +156,15 @@ while True:
 
             # Print live detection info
             print(f"Detected: {classNames[cls_id]} | Confidence: {conf:.2f} | Box: ({x1}, {y1}, {x2}, {y2})")
-            sendYoloDataToSocket(classNames[cls_id], x1, y1, x2, y2)
+            addYoloDetectedObject(classNames[cls_id], x1, y1, x2, y2)
 
-    cv2.imshow("YOLOv8 Live Webcam Detection", displayImg)
+    cv2.imshow("YOLOv8 & AruCo Live Webcam Detection", displayImg)
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
+    
+    # Send data to socket
+    for i in range(len(detectedObjectList)):
+        sendObjectDataToSocket(detectedObjectList[i])
 
 cap.release()
 cv2.destroyAllWindows()
