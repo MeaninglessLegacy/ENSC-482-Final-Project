@@ -9,6 +9,7 @@ using UnityEngine;
 
 public class ChangeColor : MonoBehaviour
 {
+    //[SerializeField] private GameObject prefab; // Drag your BallPrefab here in the Inspector
     static Socket listener;
     private CancellationTokenSource source;
     public ManualResetEvent allDone;
@@ -21,6 +22,10 @@ public class ChangeColor : MonoBehaviour
     public static readonly int PORT = 1755;
     public static readonly int WAITTIME = 1;
 
+    public float fx = 1000f;
+    public float fy = 1000f;
+    public float cx = 640f;
+    public float cy = 360f;
 
     ChangeColor()
     {
@@ -122,17 +127,48 @@ public class ChangeColor : MonoBehaviour
             handler.Close();
         }
     }
+    Vector3 Get3DFromBoundingBox(Vector2 topLeft, Vector2 bottomRight, float depth)
+    {
+        // Find center of bounding box
+        float u = (topLeft.x + bottomRight.x) / 2f;
+        float v = (topLeft.y + bottomRight.y) / 2f;
+
+        // Convert to normalized camera space
+        float xNorm = (u - cx) / fx;
+        float yNorm = (v - cy) / fy;
+
+        // Apply depth to get actual 3D point
+        float X = xNorm * depth;
+        float Y = yNorm * depth;
+        float Z = depth;
+
+        return new Vector3(X, Y, Z);
+    }
 
     private void SetObject(string data)
     {
         string[] parameters = data.Split(',');
+        // Estimated depth in meters
+        float estimatedDepth = 3.0f;
+
+        string label = parameters[0];
         objectPosition = new Vector3();
-        objectPosition.x = float.Parse(parameters[0]) / 255.0f;
-        objectPosition.y = float.Parse(parameters[1]) / 255.0f;
-        objectPosition.z = float.Parse(parameters[2]) / 255.0f;
+        float x1 = float.Parse(parameters[1]); // top-left x
+        float y1 = float.Parse(parameters[2]); // top-left y
+        float x2 = float.Parse(parameters[3]); // bottom-right x
+        float y2 = float.Parse(parameters[4]); // bottom-right y
+        //objectPosition.z = float.Parse(parameters[2]) / 255.0f;
+        
+        // Build the bounding box corners
+        Vector2 topLeft = new Vector2(x1, y1);
+        Vector2 bottomRight = new Vector2(x2, y2);
+        //objectPosition.z = float.Parse(parameters[2]) / 255.0f;
         objectRotation.x = float.Parse(parameters[3]) / 255.0f;
         objectRotation.y = float.Parse(parameters[4]) / 255.0f;
         objectRotation.z = float.Parse(parameters[5]) / 255.0f;
+       
+        objectPosition = Get3DFromBoundingBox(topLeft, bottomRight, estimatedDepth);
+        Debug.Log($"Object [{label}] placed at world position: {objectPosition}");
     }
 
     //Set color to the Material

@@ -37,10 +37,13 @@ detector_params = aruco.DetectorParameters()
 detector = aruco.ArucoDetector(marker_dict, detector_params)
 
 # Start webcam / video capture
-# cap = cv2.VideoCapture(0) # Default web cam
-# cap.set(3, 640)
-# cap.set(4, 480)
-cap = cv2.VideoCapture('markerTester.png') # Image test
+cap = 0
+if 1:
+    cap = cv2.VideoCapture(0) # Default web cam
+    cap.set(3, 640)
+    cap.set(4, 480)
+else:
+    cap = cv2.VideoCapture('markerTester.png') # Image test
 
 # Load YOLOv8 model
 model = YOLO("yolo-Weights/yolov8n.pt")
@@ -63,14 +66,15 @@ def sendObjectDataToSocket(detectedObjectClass):
     Rz = detectedObjectClass.rvec[2]
     s = socket.socket()   
     s.connect((ip, port))
-    s.send((
+    data = (
         str(className) + ","+ 
         str(x) + ","+ 
         str(y) + ","+ 
         str(z) + ","+ 
         str(Rx) + ","+ 
         str(Ry) + ","+ 
-        str(Rz)).encode())
+        str(Rz))
+    s.send(data.encode())
     s.close()
 
 # Detected object class
@@ -99,14 +103,43 @@ def addAruCoDetectedObject(markerCorner, tvec, rvec):
     global detectedObjectList
     return
 
+# send data directly to unity
+def sendYoloDetectedObject(objClassName, x1, y1, x2, y2):
+    s = socket.socket()   
+    s.connect((ip, port))
+    data = (
+        str("YOLO") + ","+ 
+        str(objClassName) + ","+ 
+        str(x1) + ","+ 
+        str(x2) + ","+ 
+        str(y1) + ","+ 
+        str(y2))
+    s.send(data.encode())
+    s.close()
+
+# send aruco data directly to unity
+def sendAruCoDetectedObject(markerCorner, tvec, rvec):
+    s = socket.socket()   
+    s.connect((ip, port))
+    data = (
+        str("ARUCO") + ","+ 
+        str(markerCorner) + ","+ 
+        str(tvec) + ","+ 
+        str(rvec))
+    s.send(data.encode())
+    s.close()
+
 while True:
+
+    # slow down detections
+    cv.waitKey(250)
 
     # clear detected objects
     clearDetectedObjectList()
 
     success, img = cap.read()
     # Do processing on img, draw displayed img.
-    displayImg = img
+    disSuccess, displayImg = cap.read()
 
     if success:
         # convert the frame into gray frame
@@ -125,16 +158,9 @@ while True:
                 cv.drawFrameAxes(displayImg, mtx, dst, rvecs[i], tvecs[i], 0.1)
                 # send AruCo data
                 addAruCoDetectedObject(marker_cornes[i], tvecs[i], rvecs[i])
+                #sendAruCoDetectedObject(marker_cornes[i], tvecs[i], rvecs[i])
         else:
-            cv.putText(displayImg, "No id", (0,64), cv.FONT_HERSHEY_PLAIN, 1.5, (0, 0, 255),2,cv.LINE_AA)
-        key = cv.waitKey(1) # 1 means delay in 1 milliseconds
-        if key == ord('q'): # input 'q' to break the loop (close camera)
-            break
-        elif key == ord('s'):  # input 's' to save the pic
-            cv.imwrite(str(datetime.now().strftime("%Y%m%d_%H%M%S")) + ".jpg", displayImg)
-
-    if not success:
-        break
+           cv.putText(displayImg, "No id", (0,64), cv.FONT_HERSHEY_PLAIN, 1.5, (0, 0, 255),2,cv.LINE_AA)
 
     # Perform inference
     results = model(img, stream=True)
@@ -157,6 +183,7 @@ while True:
             # Print live detection info
             print(f"Detected: {classNames[cls_id]} | Confidence: {conf:.2f} | Box: ({x1}, {y1}, {x2}, {y2})")
             addYoloDetectedObject(classNames[cls_id], x1, y1, x2, y2)
+            #sendYoloDetectedObject(classNames[cls_id], x1, y1, x2, y2)
 
     cv2.imshow("YOLOv8 & AruCo Live Webcam Detection", displayImg)
     if cv2.waitKey(1) & 0xFF == ord('q'):
