@@ -8,6 +8,7 @@ import math
 import socket
 import random
 from time import sleep
+from enum import Enum
 
 import cv2 as cv
 from cv2 import aruco
@@ -103,12 +104,19 @@ def addAruCoDetectedObject(markerCorner, tvec, rvec):
     global detectedObjectList
     return
 
+# Must match with c# script
+DATATYPE_YOLO = 1
+DATATYPE_ARUCO =2
+
 # send data directly to unity
 def sendYoloDetectedObject(objClassName, x1, y1, x2, y2):
     s = socket.socket()   
-    s.connect((ip, port))
+    try:
+        s.connect((ip, port))
+    except:
+        return
     data = (
-        str("YOLO") + ","+ 
+        str(DATATYPE_YOLO) + ","+ 
         str(objClassName) + ","+ 
         str(x1) + ","+ 
         str(x2) + ","+ 
@@ -118,21 +126,30 @@ def sendYoloDetectedObject(objClassName, x1, y1, x2, y2):
     s.close()
 
 # send aruco data directly to unity
-def sendAruCoDetectedObject(markerCorner, tvec, rvec):
-    s = socket.socket()   
-    s.connect((ip, port))
+def sendAruCoDetectedObject(markerCorner, tvec, rvec, id):
+    s = socket.socket() 
+    try:
+        s.connect((ip, port))
+    except:
+        return
     data = (
-        str("ARUCO") + ","+ 
+        str(DATATYPE_ARUCO) + ","+ 
         str(markerCorner) + ","+ 
-        str(tvec) + ","+ 
-        str(rvec))
+        str(tvec[0][0]) + ","+ 
+        str(tvec[1][0]) + ","+ 
+        str(tvec[2][0]) + ","+ 
+        str(rvec[0][0]) + ","+ 
+        str(rvec[1][0]) + ","+ 
+        str(rvec[2][0]) + ","+ 
+        str(id[0]) )
     s.send(data.encode())
     s.close()
 
+skipFrame = 0
 while True:
 
     # slow down detections
-    cv.waitKey(250)
+    cv.waitKey(20)
 
     # clear detected objects
     clearDetectedObjectList()
@@ -157,12 +174,17 @@ while True:
                 # 0.1 is the axis length, here also can add the thickness after the axis length
                 cv.drawFrameAxes(displayImg, mtx, dst, rvecs[i], tvecs[i], 0.1)
                 # send AruCo data
-                addAruCoDetectedObject(marker_cornes[i], tvecs[i], rvecs[i])
-                #sendAruCoDetectedObject(marker_cornes[i], tvecs[i], rvecs[i])
+                #addAruCoDetectedObject(marker_cornes[i], tvecs, rvecs)
+                sendAruCoDetectedObject(marker_cornes[i], tvecs[i], rvecs[i], marker_ids[i])
         else:
            cv.putText(displayImg, "No id", (0,64), cv.FONT_HERSHEY_PLAIN, 1.5, (0, 0, 255),2,cv.LINE_AA)
 
-    # Perform inference
+    # perform inference less
+    if skipFrame != 10:
+        skipFrame += 1
+        continue
+
+    # Perform inference    
     results = model(img, stream=True)
 
     for r in results:
@@ -183,7 +205,9 @@ while True:
             # Print live detection info
             print(f"Detected: {classNames[cls_id]} | Confidence: {conf:.2f} | Box: ({x1}, {y1}, {x2}, {y2})")
             addYoloDetectedObject(classNames[cls_id], x1, y1, x2, y2)
-            #sendYoloDetectedObject(classNames[cls_id], x1, y1, x2, y2)
+            sendYoloDetectedObject(classNames[cls_id], x1, y1, x2, y2)
+            # ONLY SEND ONE RIGHT NOW AS A TEST
+            break
 
     cv2.imshow("YOLOv8 & AruCo Live Webcam Detection", displayImg)
     if cv2.waitKey(1) & 0xFF == ord('q'):

@@ -1,31 +1,60 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using TMPro;
 using UnityEngine;
+using UnityEngine.UI;
 
 public class ChangeColor : MonoBehaviour
 {
-    //[SerializeField] private GameObject prefab; // Drag your BallPrefab here in the Inspector
+    ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // Unity objects.
+    ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    [Header("LABELS SETTINGS")]
+    [SerializeField] public TMP_Text nameLabel;
+    [SerializeField] public GameObject prefab;
+
+    ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // Sockets.
+    ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     static Socket listener;
     private CancellationTokenSource source;
     public ManualResetEvent allDone;
-    public Renderer objectRenderer;
-    private Color matColor;
-
-    private Vector3 objectPosition;
-    private Vector3 objectRotation;
-
     public static readonly int PORT = 1755;
     public static readonly int WAITTIME = 1;
 
+    ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // Object data
+    ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    private string objectName;
+    private Vector3 objectPosition;
+    private Vector3 objectRotation;
+
+    public class DetectedObject
+    {
+        public int id;
+        public string objectName;
+        public Vector3 objectPosition;
+        public Vector3 objectRotation;
+        public GameObject gameObject;
+    }
+    private List<DetectedObject> detectedObjects = new();
+
+    // bounding box math.
+    [Header("BOUNDING BOX SETTINGS")]
     public float fx = 1000f;
     public float fy = 1000f;
     public float cx = 640f;
     public float cy = 360f;
+
+    ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // Constructor, update and start.
+    ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     ChangeColor()
     {
@@ -36,19 +65,40 @@ public class ChangeColor : MonoBehaviour
     // Start is called before the first frame update
     async void Start()
     {
-        objectRenderer = GetComponent<Renderer>();
         await Task.Run(() => ListenEvents(source.Token));   
     }
 
     // Update is called once per frame
     void Update()
     {
-        objectRenderer.material.color = matColor;
+        // Classification
+        nameLabel.text = objectName;
+        // Position
         this.gameObject.transform.localPosition = objectPosition;
         Quaternion newRot = new Quaternion();
         newRot = Quaternion.Euler(objectRotation);
         this.gameObject.transform.localRotation = newRot;
+        // for each detected object
+        foreach(var obj in detectedObjects)
+        {
+            if(obj.gameObject == null)
+            {
+                obj.gameObject = Instantiate(prefab);
+            }
+            TMP_Text label = gameObject.GetComponentInChildren<TMP_Text>();
+            // Classification
+            if(label != null) label.text = obj.objectName;
+            // Position
+            obj.gameObject.transform.localPosition = obj.objectPosition;
+            Quaternion rot = new Quaternion();
+            rot = Quaternion.Euler(obj.objectRotation);
+            obj.gameObject.transform.localRotation = rot;
+        }
     }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // Sockets.
+    ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     private void ListenEvents(CancellationToken token)
     {
@@ -127,6 +177,24 @@ public class ChangeColor : MonoBehaviour
             handler.Close();
         }
     }
+
+    private void OnDestroy()
+    {
+        source.Cancel();
+    }
+
+    public class StateObject
+    {
+        public Socket workSocket = null;
+        public const int BufferSize = 1024;
+        public byte[] buffer = new byte[BufferSize];
+        public StringBuilder colorCode = new StringBuilder();
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // Parse socket data.
+    ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
     Vector3 Get3DFromBoundingBox(Vector2 topLeft, Vector2 bottomRight, float depth)
     {
         // Find center of bounding box
@@ -145,20 +213,56 @@ public class ChangeColor : MonoBehaviour
         return new Vector3(X, Y, Z);
     }
 
-    private void SetObject(string data)
+    // Must match with python script.
+    private enum SOCKETDATATYPES
     {
-        string[] parameters = data.Split(',');
+        YOLO = 1,
+        ARUCO = 2,
+        MIXED = 3
+    }
+
+    private void ParseYOLOData(string[] parameters)
+    {
+        objectName = parameters[1];
+    }
+
+    private void ParseARUCOData(string[] parameters)
+    {
+        // find detected object or new object.
+        int detectedId = int.Parse(parameters[8]);
+        DetectedObject detectedObject = detectedObjects.Find(x => x.id == detectedId);
+        if (detectedObject == null)
+        {
+            detectedObject = new();
+            detectedObjects.Add(detectedObject);
+            detectedObject.id = detectedId;
+        }
+
+        detectedObject.objectPosition.x = float.Parse(parameters[2]) * 10;
+        detectedObject.objectPosition.y = -float.Parse(parameters[3]) * 10;
+        detectedObject.objectPosition.z = float.Parse(parameters[4]) * 10;
+
+        detectedObject.objectRotation.x = float.Parse(parameters[5]) * 180/Mathf.PI;
+        detectedObject.objectRotation.y = float.Parse(parameters[6]) * 180 / Mathf.PI;
+        detectedObject.objectRotation.z = float.Parse(parameters[7]) * 180 / Mathf.PI;
+
+        detectedObject.objectName = objectName;
+
+
+    }
+
+    private void ParseMixedData(string[] parameters)
+    {
         // Estimated depth in meters
         float estimatedDepth = 3.0f;
-
         string label = parameters[0];
         objectPosition = new Vector3();
         float x1 = float.Parse(parameters[1]); // top-left x
         float y1 = float.Parse(parameters[2]); // top-left y
         float x2 = float.Parse(parameters[3]); // bottom-right x
         float y2 = float.Parse(parameters[4]); // bottom-right y
-        //objectPosition.z = float.Parse(parameters[2]) / 255.0f;
-        
+                                               //objectPosition.z = float.Parse(parameters[2]) / 255.0f;
+
         // Build the bounding box corners
         Vector2 topLeft = new Vector2(x1, y1);
         Vector2 bottomRight = new Vector2(x2, y2);
@@ -166,35 +270,26 @@ public class ChangeColor : MonoBehaviour
         objectRotation.x = float.Parse(parameters[3]) / 255.0f;
         objectRotation.y = float.Parse(parameters[4]) / 255.0f;
         objectRotation.z = float.Parse(parameters[5]) / 255.0f;
-       
+
         objectPosition = Get3DFromBoundingBox(topLeft, bottomRight, estimatedDepth);
         Debug.Log($"Object [{label}] placed at world position: {objectPosition}");
     }
 
-    //Set color to the Material
-    private void SetColors (string data) 
+    private void SetObject(string data)
     {
-        string[] colors = data.Split(',');
-        matColor = new Color()
+        string[] parameters = data.Split(',');
+        int socketDataType = int.Parse(parameters[0]);
+        switch (socketDataType)
         {
-            r = float.Parse(colors[0]) / 255.0f,
-            g = float.Parse(colors[1]) / 255.0f,
-            b = float.Parse(colors[2]) / 255.0f,
-            a = float.Parse(colors[3]) / 255.0f
-        };
-
-    }
-
-    private void OnDestroy()
-    {
-        source.Cancel();
-    }
-
-    public class StateObject
-    {
-        public Socket workSocket = null;
-        public const int BufferSize = 1024;
-        public byte[] buffer = new byte[BufferSize];
-        public StringBuilder colorCode = new StringBuilder();
+            case (int) SOCKETDATATYPES.YOLO:
+                ParseYOLOData(parameters);
+                break;
+            case (int)SOCKETDATATYPES.ARUCO:
+                ParseARUCOData(parameters);
+                break;
+            default:
+                ParseMixedData(parameters);
+                break;
+        }
     }
 }
